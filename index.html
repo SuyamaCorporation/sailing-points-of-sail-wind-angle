@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>セーリング 風向角度 ポイント・オブ・セール</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    #compass-container { touch-action: none; }
+    .pos-badge { transition: background 0.3s; }
+    input[type=number] { -moz-appearance: textfield; }
+    input[type=number]::-webkit-outer-spin-button,
+    input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+    input[type=range] { accent-color: #1e40af; }
+    .sector-desc li::before { content:"•"; margin-right:4px; color:#1e40af; }
+  </style>
+</head>
+<body class="bg-blue-50 min-h-screen">
+  <header class="bg-blue-900 text-white py-4 px-4 shadow">
+    <h1 class="text-xl font-bold">⛵ セーリング ポイント・オブ・セール</h1>
+    <p class="text-sm mt-1 opacity-90">風向・艇針路設定 → セーリングポイント判定 + 真/見かけ風速変換</p>
+  </header>
+
+  <div class="max-w-5xl mx-auto px-4 py-6">
+    <div class="grid md:grid-cols-2 gap-6">
+      <!-- Compass Panel -->
+      <div class="flex flex-col gap-5">
+        <section class="bg-white rounded-xl shadow p-5">
+          <h2 class="text-base font-bold text-blue-900 mb-4">コンパス設定</h2>
+          <div class="flex justify-center mb-4">
+            <div id="compass-container" class="relative select-none" style="width:260px;height:260px;">
+              <svg id="compass-svg" viewBox="-130 -130 260 260" width="260" height="260"
+                   role="img" aria-label="コンパス：風向・艇針路設定">
+                <!-- Background -->
+                <circle cx="0" cy="0" r="125" fill="#e0f2fe" stroke="#93c5fd" stroke-width="2"/>
+                <!-- Degree ticks -->
+                <g id="ticks"></g>
+                <!-- Sector arcs -->
+                <g id="sectors"></g>
+                <!-- Wind arrow -->
+                <line id="wind-line" x1="0" y1="0" x2="0" y2="-100" stroke="#ef4444" stroke-width="3" stroke-linecap="round"/>
+                <polygon id="wind-arrow" points="0,-110 -7,-95 7,-95" fill="#ef4444"/>
+                <circle id="wind-handle" cx="0" cy="-108" r="10" fill="#ef4444" fill-opacity="0.8" cursor="pointer" aria-label="風向ハンドル" role="button" tabindex="0"/>
+                <!-- Boat arrow -->
+                <line id="boat-line" x1="0" y1="0" x2="0" y2="-80" stroke="#1d4ed8" stroke-width="3" stroke-linecap="round" stroke-dasharray="6 3"/>
+                <polygon id="boat-arrow" points="0,-90 -6,-76 6,-76" fill="#1d4ed8"/>
+                <circle id="boat-handle" cx="0" cy="-88" r="10" fill="#1d4ed8" fill-opacity="0.8" cursor="pointer" aria-label="艇針路ハンドル" role="button" tabindex="0"/>
+                <!-- Center -->
+                <circle cx="0" cy="0" r="4" fill="#374151"/>
+                <!-- Labels -->
+                <text x="0" y="-117" text-anchor="middle" font-size="11" font-weight="bold" fill="#374151">N</text>
+                <text x="117" y="4" text-anchor="middle" font-size="11" font-weight="bold" fill="#374151">E</text>
+                <text x="0" y="124" text-anchor="middle" font-size="11" font-weight="bold" fill="#374151">S</text>
+                <text x="-117" y="4" text-anchor="middle" font-size="11" font-weight="bold" fill="#374151">W</text>
+              </svg>
+            </div>
+          </div>
+
+          <!-- Degree inputs -->
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label for="wind-deg-input" class="block text-sm font-medium text-gray-700 mb-1">
+                <span class="inline-block w-3 h-3 bg-red-500 rounded-full mr-1"></span>風向 (°)
+              </label>
+              <input type="number" id="wind-deg-input" min="0" max="359" value="0"
+                     class="border border-gray-300 rounded px-3 py-2 w-full text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+            </div>
+            <div>
+              <label for="boat-deg-input" class="block text-sm font-medium text-gray-700 mb-1">
+                <span class="inline-block w-3 h-3 bg-blue-700 rounded-full mr-1"></span>艇針路 (°)
+              </label>
+              <input type="number" id="boat-deg-input" min="0" max="359" value="45"
+                     class="border border-gray-300 rounded px-3 py-2 w-full text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+            </div>
+          </div>
+        </section>
+
+        <!-- Apparent wind calc -->
+        <section class="bg-white rounded-xl shadow p-5">
+          <h2 class="text-base font-bold text-blue-900 border-b border-blue-100 pb-2 mb-4">真の風 vs 見かけ風 変換</h2>
+          <div class="grid grid-cols-3 gap-3 mb-4">
+            <div>
+              <label for="boat-speed" class="block text-xs text-gray-500 mb-1">艇速 (kts)</label>
+              <input type="number" id="boat-speed" min="0" max="30" value="6"
+                     class="border border-gray-300 rounded px-3 py-2 w-full text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+            </div>
+            <div>
+              <label for="true-wind-speed" class="block text-xs text-gray-500 mb-1">真の風速 (kts)</label>
+              <input type="number" id="true-wind-speed" min="0" max="60" value="12"
+                     class="border border-gray-300 rounded px-3 py-2 w-full text-sm focus:ring-2 focus:ring-blue-400 focus:outline-none" />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 mb-1">真の風角 (°)</label>
+              <div class="border border-blue-200 rounded px-3 py-2 text-sm text-blue-700 font-bold bg-blue-50" id="true-wind-angle-display">45°</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div class="bg-blue-50 rounded-lg p-3 text-center">
+              <div class="text-xl font-bold text-blue-700" id="apparent-speed">16.1kts</div>
+              <div class="text-xs text-gray-500 mt-1">見かけ風速</div>
+            </div>
+            <div class="bg-indigo-50 rounded-lg p-3 text-center">
+              <div class="text-xl font-bold text-indigo-700" id="apparent-angle">32°</div>
+              <div class="text-xs text-gray-500 mt-1">見かけ風向角</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- VMG -->
+        <section class="bg-white rounded-xl shadow p-5">
+          <h2 class="text-base font-bold text-blue-900 mb-3">VMG最適タック/ジャイブ角度</h2>
+          <div class="grid grid-cols-2 gap-3 text-center">
+            <div class="bg-green-50 rounded-lg p-3">
+              <div class="text-lg font-bold text-green-700" id="vmg-tack">42°</div>
+              <div class="text-xs text-gray-500 mt-1">最適クローズホールド角</div>
+            </div>
+            <div class="bg-orange-50 rounded-lg p-3">
+              <div class="text-lg font-bold text-orange-700" id="vmg-jibe">155°</div>
+              <div class="text-xs text-gray-500 mt-1">最適ランニング角</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Right: Points of Sail -->
+      <div class="flex flex-col gap-5">
+        <!-- Current PoS -->
+        <section class="bg-white rounded-xl shadow p-5">
+          <h2 class="text-base font-bold text-blue-900 mb-3">現在のセーリングポイント</h2>
+          <div id="pos-current" class="pos-badge rounded-xl p-4 text-center mb-4 bg-blue-100">
+            <div id="pos-name" class="text-2xl font-bold text-blue-800">クローズホールド</div>
+            <div id="pos-angle" class="text-sm text-blue-600 mt-1">風角: 45°</div>
+          </div>
+          <div id="pos-detail" class="text-sm text-gray-700"></div>
+        </section>
+
+        <!-- All zones reference -->
+        <section class="bg-white rounded-xl shadow p-5">
+          <h2 class="text-base font-bold text-blue-900 mb-3">セーリングゾーン早見表</h2>
+          <div id="zones-list" class="flex flex-col gap-2"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+<script>
+const ZONES = [
+  {
+    name: 'ノーゴーゾーン（エンジン域）',
+    range: [0, 30],
+    color: '#fca5a5',
+    textColor: '#7f1d1d',
+    icon: '🚫',
+    trim: 'セールを張ることができません。エンジン使用またはタックで脱出が必要です。',
+    speed: '前進不可',
+    sectorColor: '#fee2e2',
+  },
+  {
+    name: 'クローズホールド',
+    range: [30, 45],
+    color: '#93c5fd',
+    textColor: '#1e3a5f',
+    icon: '⬆️',
+    trim: 'メインセール＋ジブを最大限引き込みます。セールのリーチ（後端）を縦方向に合わせる。',
+    speed: '最高速の70〜85%。高く登れる角度。',
+    sectorColor: '#dbeafe',
+  },
+  {
+    name: 'クローズリーチ',
+    range: [45, 60],
+    color: '#6ee7b7',
+    textColor: '#064e3b',
+    icon: '↗️',
+    trim: 'セールをわずかにソーサー（緩める）。ジブはメインセールとほぼ平行。',
+    speed: '高速域。快適なセーリング。',
+    sectorColor: '#d1fae5',
+  },
+  {
+    name: 'ビームリーチ',
+    range: [60, 90],
+    color: '#fcd34d',
+    textColor: '#78350f',
+    icon: '➡️',
+    trim: 'セールを約45°まで解放。ジブは独立して引き込む。バングを緩める。',
+    speed: '最高速域。多くの艇で最速ポイント。',
+    sectorColor: '#fef3c7',
+  },
+  {
+    name: 'ブロードリーチ',
+    range: [90, 150],
+    color: '#fb923c',
+    textColor: '#7c2d12',
+    icon: '↘️',
+    trim: 'セールを大きく解放（60〜80°）。スピネーカー展開の好機。',
+    speed: '非常に速い。ただし波の影響大。',
+    sectorColor: '#ffedd5',
+  },
+  {
+    name: 'ランニング',
+    range: [150, 180],
+    color: '#c084fc',
+    textColor: '#3b0764',
+    icon: '⬇️',
+    trim: 'メインを最大まで解放。ジブをウィングアウト（反対側）。ジャイブ注意。',
+    speed: '風速に依存。ジャイブのリスク管理が重要。',
+    sectorColor: '#f3e8ff',
+  },
+];
+
+function getWindAngle(windDeg, boatDeg) {
+  let angle = ((boatDeg - windDeg) + 360) % 360;
+  if (angle > 180) angle = 360 - angle;
+  return angle;
+}
+
+function getZone(angle) {
+  for (const z of ZONES) {
+    if (angle >= z.range[0] && angle < z.range[1]) return z;
+  }
+  return ZONES[ZONES.length - 1];
+}
+
+function degToRad(d) { return d * Math.PI / 180; }
+
+let windDeg = 0, boatDeg = 45;
+
+// ---- Draw compass ----
+function drawSectors() {
+  const g = document.getElementById('sectors');
+  g.innerHTML = '';
+  ZONES.forEach(z => {
+    // Both sides (starboard and port)
+    [-1, 1].forEach(side => {
+      const start = side === 1 ? z.range[0] : -z.range[1];
+      const end   = side === 1 ? z.range[1] : -z.range[0];
+      const r = 110;
+      const startRad = degToRad(start - 90);
+      const endRad   = degToRad(end   - 90);
+      const x1 = Math.cos(startRad) * r;
+      const y1 = Math.sin(startRad) * r;
+      const x2 = Math.cos(endRad)   * r;
+      const y2 = Math.sin(endRad)   * r;
+      const large = Math.abs(end - start) > 180 ? 1 : 0;
+      const path = `M 0 0 L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+      const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      el.setAttribute('d', path);
+      el.setAttribute('fill', z.sectorColor);
+      el.setAttribute('opacity', '0.7');
+      g.appendChild(el);
+    });
+  });
+}
+
+function updateArrows() {
+  const windRad = degToRad(windDeg - 90);
+  const boatRad = degToRad(boatDeg - 90);
+  const r1 = 100, rh = 108, ra = 110;
+  const wx = Math.cos(windRad), wy = Math.sin(windRad);
+  const bx = Math.cos(boatRad), by = Math.sin(boatRad);
+
+  document.getElementById('wind-line').setAttribute('x2', wx * r1);
+  document.getElementById('wind-line').setAttribute('y2', wy * r1);
+  document.getElementById('wind-arrow').setAttribute('points',
+    `${wx*ra},${wy*ra} ${wx*r1-wy*7},${wy*r1+wx*7} ${wx*r1+wy*7},${wy*r1-wx*7}`);
+  document.getElementById('wind-handle').setAttribute('cx', wx * rh);
+  document.getElementById('wind-handle').setAttribute('cy', wy * rh);
+
+  const r2 = 80, rh2 = 88, ra2 = 90;
+  document.getElementById('boat-line').setAttribute('x2', bx * r2);
+  document.getElementById('boat-line').setAttribute('y2', by * r2);
+  document.getElementById('boat-arrow').setAttribute('points',
+    `${bx*ra2},${by*ra2} ${bx*r2-by*6},${by*r2+bx*6} ${bx*r2+by*6},${by*r2-bx*6}`);
+  document.getElementById('boat-handle').setAttribute('cx', bx * rh2);
+  document.getElementById('boat-handle').setAttribute('cy', by * rh2);
+}
+
+function updatePoS() {
+  const angle = getWindAngle(windDeg, boatDeg);
+  const zone = getZone(angle);
+  const posBox = document.getElementById('pos-current');
+  posBox.style.background = zone.sectorColor;
+  document.getElementById('pos-name').textContent = zone.icon + ' ' + zone.name;
+  document.getElementById('pos-name').style.color = zone.textColor;
+  document.getElementById('pos-angle').textContent = `風角: ${angle}°`;
+  document.getElementById('pos-angle').style.color = zone.textColor;
+
+  const detail = document.getElementById('pos-detail');
+  detail.innerHTML = '';
+
+  const trimDiv = document.createElement('div');
+  trimDiv.className = 'mb-2';
+  const trimLabel = document.createElement('span');
+  trimLabel.className = 'font-semibold text-gray-700';
+  trimLabel.textContent = 'セールトリム: ';
+  const trimText = document.createElement('span');
+  trimText.textContent = zone.trim;
+  trimDiv.appendChild(trimLabel);
+  trimDiv.appendChild(trimText);
+
+  const speedDiv = document.createElement('div');
+  const speedLabel = document.createElement('span');
+  speedLabel.className = 'font-semibold text-gray-700';
+  speedLabel.textContent = '速度特性: ';
+  const speedText = document.createElement('span');
+  speedText.textContent = zone.speed;
+  speedDiv.appendChild(speedLabel);
+  speedDiv.appendChild(speedText);
+
+  detail.appendChild(trimDiv);
+  detail.appendChild(speedDiv);
+
+  document.getElementById('true-wind-angle-display').textContent = angle + '°';
+  updateApparent(angle);
+}
+
+function updateApparent(twAngle) {
+  const bs  = parseFloat(document.getElementById('boat-speed').value) || 0;
+  const tws = parseFloat(document.getElementById('true-wind-speed').value) || 0;
+  const twa = twAngle !== undefined ? twAngle : getWindAngle(windDeg, boatDeg);
+  const twaRad = degToRad(twa);
+
+  // Apparent wind vector
+  const awx = tws * Math.sin(twaRad) + bs * 0;
+  const awy = tws * Math.cos(twaRad) - bs;
+  const aws = Math.sqrt(awx * awx + awy * awy);
+  let awa = Math.atan2(awx, awy) * 180 / Math.PI;
+  if (awa < 0) awa += 360;
+  if (awa > 180) awa = 360 - awa;
+
+  document.getElementById('apparent-speed').textContent = aws.toFixed(1) + 'kts';
+  document.getElementById('apparent-angle').textContent = Math.round(awa) + '°';
+
+  // VMG: polars simplification
+  const vmgTack = Math.round(35 + (tws > 15 ? 5 : 0) + (tws > 20 ? 5 : 0));
+  const vmgJibe = Math.round(150 + (tws > 15 ? 5 : 0));
+  document.getElementById('vmg-tack').textContent = vmgTack + '°';
+  document.getElementById('vmg-jibe').textContent = vmgJibe + '°';
+}
+
+// Zones list
+function buildZonesList() {
+  const container = document.getElementById('zones-list');
+  ZONES.forEach(z => {
+    const row = document.createElement('div');
+    row.className = 'flex items-center gap-3 p-2 rounded-lg';
+    row.style.background = z.sectorColor;
+
+    const icon = document.createElement('span');
+    icon.textContent = z.icon;
+    icon.className = 'text-xl';
+
+    const info = document.createElement('div');
+    const name = document.createElement('div');
+    name.className = 'text-sm font-bold';
+    name.style.color = z.textColor;
+    name.textContent = z.name;
+
+    const range = document.createElement('div');
+    range.className = 'text-xs text-gray-500';
+    range.textContent = `${z.range[0]}°〜${z.range[1]}°`;
+
+    info.appendChild(name);
+    info.appendChild(range);
+    row.appendChild(icon);
+    row.appendChild(info);
+    container.appendChild(row);
+  });
+}
+
+// ---- Drag handling ----
+function getSVGPoint(e) {
+  const svg = document.getElementById('compass-svg');
+  const rect = svg.getBoundingClientRect();
+  const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+  const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+  const scaleX = 260 / rect.width;
+  const scaleY = 260 / rect.height;
+  const x = (clientX - rect.left) * scaleX - 130;
+  const y = (clientY - rect.top)  * scaleY - 130;
+  return { x, y };
+}
+
+function pointToDeg(x, y) {
+  return ((Math.atan2(x, -y) * 180 / Math.PI) + 360) % 360;
+}
+
+let dragging = null;
+
+function startDrag(e, type) {
+  e.preventDefault();
+  dragging = type;
+}
+
+function onDrag(e) {
+  if (!dragging) return;
+  e.preventDefault();
+  const { x, y } = getSVGPoint(e);
+  const deg = Math.round(pointToDeg(x, y));
+  if (dragging === 'wind') {
+    windDeg = deg;
+    document.getElementById('wind-deg-input').value = deg;
+  } else {
+    boatDeg = deg;
+    document.getElementById('boat-deg-input').value = deg;
+  }
+  updateArrows();
+  updatePoS();
+}
+
+function endDrag() { dragging = null; }
+
+const windHandle = document.getElementById('wind-handle');
+const boatHandle = document.getElementById('boat-handle');
+const container  = document.getElementById('compass-container');
+
+windHandle.addEventListener('mousedown',  e => startDrag(e, 'wind'));
+windHandle.addEventListener('touchstart', e => startDrag(e, 'wind'), { passive: false });
+boatHandle.addEventListener('mousedown',  e => startDrag(e, 'boat'));
+boatHandle.addEventListener('touchstart', e => startDrag(e, 'boat'), { passive: false });
+
+container.addEventListener('mousemove',  onDrag);
+container.addEventListener('touchmove',  onDrag, { passive: false });
+document.addEventListener('mouseup',   endDrag);
+document.addEventListener('touchend',  endDrag);
+
+// Keyboard for handles
+windHandle.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft')  { windDeg = (windDeg - 5 + 360) % 360; }
+  if (e.key === 'ArrowRight') { windDeg = (windDeg + 5) % 360; }
+  document.getElementById('wind-deg-input').value = windDeg;
+  updateArrows(); updatePoS();
+});
+boatHandle.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft')  { boatDeg = (boatDeg - 5 + 360) % 360; }
+  if (e.key === 'ArrowRight') { boatDeg = (boatDeg + 5) % 360; }
+  document.getElementById('boat-deg-input').value = boatDeg;
+  updateArrows(); updatePoS();
+});
+
+// Number inputs
+document.getElementById('wind-deg-input').addEventListener('input', e => {
+  windDeg = ((parseInt(e.target.value) || 0) + 360) % 360;
+  updateArrows(); updatePoS();
+});
+document.getElementById('boat-deg-input').addEventListener('input', e => {
+  boatDeg = ((parseInt(e.target.value) || 0) + 360) % 360;
+  updateArrows(); updatePoS();
+});
+
+['boat-speed','true-wind-speed'].forEach(id => {
+  document.getElementById(id).addEventListener('input', () => updateApparent());
+});
+
+// Init
+drawSectors();
+updateArrows();
+updatePoS();
+buildZonesList();
+</script>
+</body>
+</html>
